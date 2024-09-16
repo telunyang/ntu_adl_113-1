@@ -11,10 +11,10 @@ from transformers import (
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取模型與分詞器
-model_ps_path = './models_paragraph_selection'
+model_ps_path = 'finetuned/bert-base-chinese/models_paragraph_selection' # './models_paragraph_selection'
 tokenizer_paragraph = AutoTokenizer.from_pretrained(model_ps_path)
 model_paragraph = AutoModelForMultipleChoice.from_pretrained(model_ps_path)
-model_ss_path = './models_span_selection'
+model_ss_path = 'finetuned/bert-base-chinese/models_span_selection' # 'models_final' # './models_span_selection'
 tokenizer_span = AutoTokenizer.from_pretrained(model_ss_path)
 model_span = AutoModelForQuestionAnswering.from_pretrained(model_ss_path)
 
@@ -147,15 +147,13 @@ for index, sample in enumerate(test_data):
     # 取得答案
     answer, start_char, end_char= get_answer(question, paragraph_text, tokenizer_span, model_span, max_seq_length)
 
-    # # 進行分段
-    # for win_size in range(0, len(tokenized_tokens), 100):
-    #     # 取得答案
-    #     answer, start_char, end_char= get_answer(question, paragraph_text[win_size: win_size + 510], tokenizer_span, model_span, max_seq_length)
+    # 以 sliding window 的方式取得答案
+    for win_size in range(0, len(tokenized_tokens), 100):
+        # 取得答案
+        answer, start_char, end_char= get_answer(question, paragraph_text[win_size: win_size + 510], tokenizer_span, model_span, max_seq_length)
 
-    #     # 如果有找到答案，則儲存結果
-    #     if start_char != 0 and end_char != 0 and answer != "":
-    #         if end_char > start_char and answer != "":
-    #             break
+        if start_char != 0 and end_char != 0:
+            break
 
     # 輸出結果
     print("=" * 50)
@@ -165,9 +163,6 @@ for index, sample in enumerate(test_data):
     print(f"[{index}] tokenized_tokens: {len(tokenized_tokens)}")
     print(f"[{index}] answer: {answer}")
     print(f"[{index}] start_char: {start_char}, end_char: {end_char}")
-
-    # if index == 14: 
-    #     break
 
     # 儲存結果
     result = {

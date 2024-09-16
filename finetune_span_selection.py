@@ -22,7 +22,7 @@ from transformers import (
 
 
 # 讀取模型
-model_name = 'hfl/chinese-lert-large' # 'google-bert/bert-base-chinese' # 'schen/longformer-chinese-base-4096' # 'hfl/chinese-roberta-wwm-ext'
+model_name = 'google-bert/bert-base-chinese'
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForQuestionAnswering.from_pretrained(model_name)
 for param in model.parameters(): 
@@ -33,9 +33,9 @@ max_length = 512
 path_context = './context.json'
 path_train_data = './train.json'
 path_valid_data = './valid.json'
-save_to_path = './models_span_selection'
+save_to_path = 'models_final' # './models_span_selection'
 output_dir = f'{save_to_path}/checkpoints'
-run_name = f'{model_name}___span_selection_with_validation'
+run_name = f'{model_name}___final' # f'{model_name}___span_selection_with_validation'
 
 # 建立 Early Stopping 機制
 class EarlyStoppingCallback(TrainerCallback):
@@ -195,13 +195,13 @@ def train(train_dataset, eval_dataset=None):
         output_dir=output_dir,
         overwrite_output_dir=True,
         num_train_epochs=3,
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=4,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=16,
         eval_strategy="steps", # epoch, steps, no
-        eval_steps=500,
+        eval_steps=50,
         save_strategy="steps", # epoch, steps, no
-        save_steps=500,
-        save_total_limit=1,
+        save_steps=50,
+        save_total_limit=3,
         load_best_model_at_end=True,
         # logging_dir='./logs',
         # logging_steps=500,
@@ -209,7 +209,7 @@ def train(train_dataset, eval_dataset=None):
         # prediction_loss_only=True,
         report_to='wandb',
         gradient_accumulation_steps=2,
-        warmup_steps=150,
+        # warmup_steps=25,
         # fp16=True,
         learning_rate=3e-5,
         max_steps=-1,
@@ -226,7 +226,7 @@ def train(train_dataset, eval_dataset=None):
         eval_dataset=eval_dataset,
         compute_metrics=exact_match,
         data_collator=DataCollatorForQA(tokenizer),
-        # callbacks=[AccuracyCallback()]
+        callbacks=[AccuracyCallback()]
     )
 
     # 開始訓練
@@ -249,14 +249,12 @@ if __name__ == '__main__':
     with open('./valid.json', "r", encoding="utf-8") as f:
         eval_data = json.loads(f.read())
 
-    # train_data = train_data + eval_data
-
     # 資料前處理
     train_data = SpanSelectionDataset(data=train_data, tokenizer=tokenizer, context=context, max_length=max_length)
     eval_data = SpanSelectionDataset(data=eval_data, tokenizer=tokenizer, context=context, max_length=max_length)
 
     # 訓練模型
-    train(train_data, eval_data) # 
+    train(train_data, eval_data)
     
     t2 = time()
     print(f"[Finetuning for span selection] 程式結束，一共花費 {t2 - t1} 秒 ({(t2 - t1) / 60} 分鐘) ({(t2 - t1) / 3600} 小時)")
