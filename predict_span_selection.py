@@ -3,14 +3,15 @@ import json
 import pandas as pd
 from transformers import AutoModelForQuestionAnswering, AutoTokenizer
 
+# 判斷是否有 GPU 可以使用
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取 model 和 tokenizer
 model_path = './models_span_selection'
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForQuestionAnswering.from_pretrained(model_path)
 
-# 讀取模型到 device 當中
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# 放置模型到 GPU 上
 model.to(device)
 
 # 設定評估模式
@@ -21,10 +22,11 @@ with open('./context.json', "r", encoding="utf-8") as f:
     context = json.loads(f.read())
 with open('./valid.json', "r", encoding="utf-8") as f:
     valid_data = json.loads(f.read())
+with open('./test.json', "r", encoding="utf-8") as f:
+    test_data = json.loads(f.read())
 
-
-# 定義預測函數
-def predict(question, context_text, tokenizer, model, max_length):
+# 取得答案
+def get_answer(question, context_text, tokenizer, model, max_length):
     # 對問題與段落進行編碼
     encoding = tokenizer.encode_plus(
         question,
@@ -55,9 +57,9 @@ def predict(question, context_text, tokenizer, model, max_length):
     start_index = torch.argmax(start_probs, dim=1).item()
     end_index = torch.argmax(end_probs, dim=1).item()
 
-    # 確認起始不會大於結束的位置
-    if end_index < start_index:
-        end_index = start_index
+    # # 確認起始不會大於結束的位置
+    # if end_index < start_index:
+    #     end_index = start_index
 
     # 取得答案 (透過 offset_mapping 將 token 轉換回字元)
     offset_mapping = encoding['offset_mapping'][0]
@@ -65,15 +67,15 @@ def predict(question, context_text, tokenizer, model, max_length):
     end_char = offset_mapping[end_index][1].item()
     answer = context_text[start_char:end_char]
 
-    return answer
+    return answer, start_char, end_char
 
 # 預測並保存結果
 results = []
 
 # 預測每一筆 test data
 for index, sample in enumerate(valid_data):
-    if index == 3:
-        break
+    # if index == 3:
+    #     break
     
     # 取得 question
     question = sample['question']
@@ -82,22 +84,25 @@ for index, sample in enumerate(valid_data):
     relevant_paragraph_id = sample['relevant']
     paragraph_text = context[relevant_paragraph_id]
 
-    # 預測答案
+    # 設定最大長度
     max_seq_length = 512
-    answer = predict(question, paragraph_text, tokenizer, model, max_seq_length)
 
-    # 儲存結果
-    result = {
-        'id': sample['id'],
-        'answer': answer
-    }
-    results.append(result)
+    # 對段落進行編碼
+    tokenized_tokens = tokenizer.encode(
+        paragraph_text, 
+        padding=True, 
+        truncation=True, 
+        max_length=max_seq_length, 
+        add_special_tokens=True
+    )
+
+    # 取得答案
+    answer, start_char, end_char= get_answer(question, paragraph_text, tokenizer, model, max_seq_length)
 
     # 輸出結果
-    print(f"question: {question}")
-    print(f"prediction: {answer}")
-    print("=" * 10)
-
-# # 將結果轉換為 DataFrame 並儲存為 CSV 檔
-# df = pd.DataFrame(results, columns=['id', 'answer'])
-# df.to_csv('./predictions.csv', index=False)
+    print("=" * 50)
+    print(f"[{index}] question: {question}")
+    print(f"[{index}] paragraph: {paragraph_text}")
+    print(f"[{index}] tokenized_tokens: {len(tokenized_tokens)}")
+    print(f"[{index}] answer: {answer}")
+    print(f"[{index}] start_char: {start_char}, end_char: {end_char}")

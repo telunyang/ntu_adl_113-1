@@ -11,12 +11,12 @@ from transformers import (
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取模型與分詞器
-model_path = './models_paragraph_selection'
-tokenizer_paragraph = AutoTokenizer.from_pretrained(model_path)
-model_paragraph = AutoModelForMultipleChoice.from_pretrained(model_path)
-model_path = './models_span_selection'
-tokenizer_span = AutoTokenizer.from_pretrained(model_path)
-model_span = AutoModelForQuestionAnswering.from_pretrained(model_path)
+model_ps_path = './models_paragraph_selection'
+tokenizer_paragraph = AutoTokenizer.from_pretrained(model_ps_path)
+model_paragraph = AutoModelForMultipleChoice.from_pretrained(model_ps_path)
+model_ss_path = './models_span_selection'
+tokenizer_span = AutoTokenizer.from_pretrained(model_ss_path)
+model_span = AutoModelForQuestionAnswering.from_pretrained(model_ss_path)
 
 # 放置兩個模型到相同的裝置上
 model_paragraph.to(device)
@@ -120,7 +120,7 @@ def get_answer(question, context_text, tokenizer, model, max_length):
     end_char = offset_mapping[end_index][1].item()
     answer = context_text[start_char:end_char]
 
-    return answer
+    return answer, start_char, end_char
 
 
 # 放置 id 與 answer 的結果
@@ -135,26 +135,48 @@ for index, sample in enumerate(test_data):
     # 取得 question
     question = sample['question']
 
+    # 對段落進行編碼
+    tokenized_tokens = tokenizer_span.encode(
+        paragraph_text, 
+        padding=False, 
+        truncation=False, 
+        max_length=max_seq_length, 
+        add_special_tokens=True
+    )
+
+    # 取得答案
+    answer, start_char, end_char= get_answer(question, paragraph_text, tokenizer_span, model_span, max_seq_length)
+
+    # # 進行分段
+    # for win_size in range(0, len(tokenized_tokens), 100):
+    #     # 取得答案
+    #     answer, start_char, end_char= get_answer(question, paragraph_text[win_size: win_size + 510], tokenizer_span, model_span, max_seq_length)
+
+    #     # 如果有找到答案，則儲存結果
+    #     if start_char != 0 and end_char != 0 and answer != "":
+    #         if end_char > start_char and answer != "":
+    #             break
+
+    # 輸出結果
     print("=" * 50)
-    print(f"[{index}] question: ", question)
-    print(f"[{index}] paragraph: ", paragraph_text)
+    print(f"[{index}] id: {sample['id']}")
+    print(f"[{index}] question: {question}")
+    print(f"[{index}] paragraph: {paragraph_text}")
+    print(f"[{index}] tokenized_tokens: {len(tokenized_tokens)}")
+    print(f"[{index}] answer: {answer}")
+    print(f"[{index}] start_char: {start_char}, end_char: {end_char}")
+
+    # if index == 14: 
+    #     break
+
+    # 儲存結果
+    result = {
+        'id': sample['id'],
+        'answer': answer
+    }
+    results.append(result)
     
 
-    # # 預測答案
-    # answer = get_answer(question, paragraph_text, tokenizer_span, model_span, max_seq_length)
-
-    # # 儲存結果
-    # result = {
-    #     'id': sample['id'],
-    #     'answer': answer
-    # }
-    # results.append(result)
-
-    # # 輸出結果
-    # print(f"question: {question}")
-    # print(f"prediction: {answer}")
-    # print("=" * 10)
-
-# # 將結果轉換為 DataFrame 並儲存為 CSV 檔
-# df = pd.DataFrame(results, columns=['id', 'answer'])
-# df.to_csv('./prediction.csv', index=False)
+# 將結果轉換為 DataFrame 並儲存為 CSV 檔
+df = pd.DataFrame(results)
+df.to_csv('./prediction.csv', index=False)

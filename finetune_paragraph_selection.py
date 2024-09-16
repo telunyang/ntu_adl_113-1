@@ -7,15 +7,6 @@ from transformers import (
     AutoModelForMultipleChoice, AutoTokenizer,
     Trainer, TrainingArguments, TrainerCallback
 )
-import matplotlib.pyplot as plt
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei'] 
-plt.rcParams['axes.unicode_minus'] = False
-
-# 清除 CUDA 快取
-# torch.cuda.empty_cache()
-
-# 設定 CUDA_LAUNCH_BLOCKING=1，讓程式在運行時遇到錯誤時，立即停止，方便 debug
-# os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 # 取得 cmd 引數
 # parser = argparse.ArgumentParser(description='批次建立索引')
@@ -24,8 +15,11 @@ plt.rcParams['axes.unicode_minus'] = False
 
 
 # 讀取模型
-tokenizer = AutoTokenizer.from_pretrained('bert-base-chinese')
-model = AutoModelForMultipleChoice.from_pretrained('bert-base-chinese')
+model_name = 'hfl/chinese-lert-large' # 'google-bert/bert-base-chinese' # 'schen/longformer-chinese-base-4096' # 'hfl/chinese-roberta-wwm-ext'
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForMultipleChoice.from_pretrained(model_name)
+for param in model.parameters(): 
+    param.data = param.data.contiguous()
 
 # 基本設定
 max_length = 512
@@ -34,6 +28,7 @@ path_train_data = './train.json'
 path_valid_data = './valid.json'
 save_to_path = './models_paragraph_selection'
 output_dir = f'{save_to_path}/checkpoints'
+run_name = f'{model_name}___paragraph_selection_with_validation'
 
 
 
@@ -94,7 +89,7 @@ class AccuracyCallback(TrainerCallback):
 
 # 自訂預處理資料的格式
 class ParagraphSelectionDataset(Dataset):
-    def __init__(self, data, tokenizer, context, max_length=512):
+    def __init__(self, data, tokenizer, context, max_length):
         self.data = data
         self.tokenizer = tokenizer
         self.context = context
@@ -140,26 +135,33 @@ class ParagraphSelectionDataset(Dataset):
     
 
 # 訓練模型
-def train(train_dataset, eval_dataset):
+def train(train_dataset, eval_dataset=None):
+    '''
+    註:
+    1. 若 eval_dataset 為 None，則只進行訓練，不進行驗證
+    2. eval_strategy="no", save_strategy="no"
+    '''
     # 定義訓練參數
     training_args = TrainingArguments(
-        run_name='finetune_paragraph_selection',
+        run_name=run_name,
         output_dir=output_dir,
         overwrite_output_dir=True,
         num_train_epochs=1,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        # save_steps=500,
-        save_strategy="steps", # epoch
-        save_total_limit=2,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=4,
+        eval_strategy="steps", # epoch, steps, no
+        eval_steps=500,
+        save_strategy="steps", # epoch, steps, no
+        save_steps=500,
+        save_total_limit=3,
         load_best_model_at_end=True,
-        eval_strategy="steps", # epoch
-        eval_steps=10,
         # logging_dir='./logs',
         # logging_steps=500,
         # logging_strategy="epoch",
         # prediction_loss_only=True,
+        report_to='wandb',
         gradient_accumulation_steps=2,
+        warmup_steps=50,
         # fp16=True,
         learning_rate=3e-5,
         max_steps=-1,
@@ -173,7 +175,7 @@ def train(train_dataset, eval_dataset):
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        callbacks=[AccuracyCallback()]
+        # callbacks=[AccuracyCallback()]
     )
 
     # 開始訓練
@@ -184,12 +186,10 @@ def train(train_dataset, eval_dataset):
     tokenizer.save_pretrained(save_to_path)
 
 
-
-
-
 if __name__ == '__main__':
     t1 = time()
 
+    # 讀取資料
     with open('./context.json', "r", encoding="utf-8") as f:
         context = json.loads(f.read())
     with open('./train.json', "r", encoding="utf-8") as f:
@@ -197,10 +197,12 @@ if __name__ == '__main__':
     with open('./valid.json', "r", encoding="utf-8") as f:
         eval_data = json.loads(f.read())
 
-    train_data = ParagraphSelectionDataset(data=train_data, tokenizer=tokenizer, context=context)
-    eval_data = ParagraphSelectionDataset(data=eval_data, tokenizer=tokenizer, context=context)
+    # 資料前處理
+    train_data = ParagraphSelectionDataset(data=train_data, tokenizer=tokenizer, context=context, max_length=max_length)
+    eval_data = ParagraphSelectionDataset(data=eval_data, tokenizer=tokenizer, context=context, max_length=max_length)
 
-    train(train_data, eval_data)
+    # 訓練模型
+    train(train_data, eval_data) # 
     
     t2 = time()
     print(f"[Finetuning for paragraph selection] 程式結束，一共花費 {t2 - t1} 秒 ({(t2 - t1) / 60} 分鐘) ({(t2 - t1) / 3600} 小時)")

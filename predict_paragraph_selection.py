@@ -10,7 +10,7 @@ model_path = './models_paragraph_selection'
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForMultipleChoice.from_pretrained(model_path)
 
-# 放置模型到相同的裝置上
+# 放置模型到 GPU 上
 model.to(device)
 
 # 設定成評估模式
@@ -19,6 +19,8 @@ model.eval()
 # 讀取作業提供的段落資料
 with open('./context.json', "r", encoding="utf-8") as f:
     context = json.loads(f.read())
+with open('./valid.json', "r", encoding="utf-8") as f:
+    valid_data = json.loads(f.read())
 with open('./test.json', "r", encoding="utf-8") as f:
     test_data = json.loads(f.read())
 
@@ -70,6 +72,9 @@ def get_paragraph(sample, tokenizer, context, model, max_length):
 
 # 進行評估
 for index, sample in enumerate(test_data):
+    # if index == 3:
+    #     break
+    
     # 取得合適的段落
     max_seq_length = 512
     paragraph_text = get_paragraph(sample, tokenizer, context, model, max_seq_length)

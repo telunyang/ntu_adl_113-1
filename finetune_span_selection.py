@@ -22,8 +22,11 @@ from transformers import (
 
 
 # 讀取模型
-tokenizer = AutoTokenizer.from_pretrained('bert-base-chinese')
-model = AutoModelForQuestionAnswering.from_pretrained('bert-base-chinese')
+model_name = 'hfl/chinese-lert-large' # 'google-bert/bert-base-chinese' # 'schen/longformer-chinese-base-4096' # 'hfl/chinese-roberta-wwm-ext'
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForQuestionAnswering.from_pretrained(model_name)
+for param in model.parameters(): 
+    param.data = param.data.contiguous()
 
 # 基本設定
 max_length = 512
@@ -32,8 +35,7 @@ path_train_data = './train.json'
 path_valid_data = './valid.json'
 save_to_path = './models_span_selection'
 output_dir = f'{save_to_path}/checkpoints'
-
-
+run_name = f'{model_name}___span_selection_with_validation'
 
 # 建立 Early Stopping 機制
 class EarlyStoppingCallback(TrainerCallback):
@@ -102,7 +104,7 @@ class DataCollatorForQA(DataCollatorWithPadding):
 
 # 自訂預處理資料的格式
 class SpanSelectionDataset(Dataset):
-    def __init__(self, data, tokenizer, context, max_length=512):
+    def __init__(self, data, tokenizer, context, max_length):
         self.data = data
         self.tokenizer = tokenizer
         self.context = context
@@ -115,7 +117,7 @@ class SpanSelectionDataset(Dataset):
         sample = self.data[idx]
         question = sample['question']
         relevant_paragraph_id = sample['relevant']
-        context_text = self.context[relevant_paragraph_id]  # 確保索引是字串
+        context_text = self.context[relevant_paragraph_id]
         answer_text = sample['answer']['text']
         answer_start_char = sample['answer']['start']
         answer_end_char = answer_start_char + len(answer_text)
@@ -135,25 +137,9 @@ class SpanSelectionDataset(Dataset):
         offset_mapping = encoding['offset_mapping'][0]
         sequence_ids = encoding.sequence_ids(0)
 
-        # 初始化起始和結束位置
-        start_position = None
-        end_position = None
+        start_position = next((i for i, (start, end) in enumerate(offset_mapping) if sequence_ids[i] == 1 and start <= answer_start_char < end), 0)
 
-        # 遍歷 tokens，找到答案的起始和結束位置
-        for idx in range(len(offset_mapping)):
-            if sequence_ids[idx] != 1:
-                continue  # 只考慮段落部分的 tokens
-            start, end = offset_mapping[idx].tolist()
-            if start <= answer_start_char < end:
-                start_position = idx
-            if start < answer_end_char <= end:
-                end_position = idx
-
-        # 如果沒有找到位置，設為 CLS token 的位置
-        if start_position is None:
-            start_position = 0
-        if end_position is None:
-            end_position = 0
+        end_position = next((i for i, (start, end) in enumerate(offset_mapping) if sequence_ids[i] == 1 and start < answer_end_char <= end), 0)
 
         return {
             'input_ids': encoding['input_ids'][0],
@@ -165,84 +151,70 @@ class SpanSelectionDataset(Dataset):
             'sequence_ids': sequence_ids,
         }
 
+# 計算 exact match
 def exact_match(pred):
-    # 解壓縮預測和標籤
+    # 取得預測的 start 和 end logits，以及對應位置的 label ids
     start_logits, end_logits = pred.predictions
     start_labels, end_labels = pred.label_ids
 
-    # 將 logits 轉換為預測的起始和結束位置
+    # 取得最大機率的起始和結束位置
     start_preds = np.argmax(start_logits, axis=1)
     end_preds = np.argmax(end_logits, axis=1)
 
+    # 用來計算答對的數量
     exact_match_count = 0
     total = len(start_labels)
 
     for i in range(total):
-        # 將 tensor 轉換為 int
-        i = int(i)
+        # 取得測試後的起始和結束位置
+        pred_start = start_preds[i]
+        pred_end = end_preds[i]
 
-        # 從 input_ids 中重建預測的答案文本和真實答案文本
-        input_ids = pred.inputs['input_ids'][i]
-        offset_mapping = pred.inputs['offset_mapping'][i]
-        sequence_ids = pred.inputs['sequence_ids'][i]
-
-        # 只關注段落部分的 tokens
-        context_start = sequence_ids.index(1)
-        context_end = len(sequence_ids) - sequence_ids[::-1].index(1)
-
-        # 調整預測的起始和結束位置在 context 範圍內
-        pred_start = max(start_preds[i], context_start)
-        pred_end = min(end_preds[i], context_end - 1)
-
-        # 取得預測的答案文本
-        pred_answer = tokenizer.decode(
-            input_ids[pred_start:pred_end + 1],
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=True
-        ).strip()
-
-        # 取得真實的答案文本
+        # 取得實際答案
         true_start = start_labels[i]
         true_end = end_labels[i]
-        true_answer = tokenizer.decode(
-            input_ids[true_start:true_end + 1],
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=True
-        ).strip()
 
-        # 比較預測答案和真實答案
-        if pred_answer == true_answer:
+        # 比較預測和實際答案的位置是否相同，答對則 exact_match_count + 1
+        if pred_start == true_start and pred_end == true_end:
             exact_match_count += 1
 
+    # 計算 exact match 的比例
     exact_match = exact_match_count / total
     return {'exact_match': exact_match}
 
 # 訓練模型
-def train(train_dataset, eval_dataset):
+def train(train_dataset, eval_dataset=None):
+    '''
+    註:
+    1. 若 eval_dataset 為 None，則只進行訓練，不進行驗證
+    2. eval_strategy="no", save_strategy="no"
+    '''
     # 定義訓練參數
     training_args = TrainingArguments(
-        run_name='finetune_span_selection',
+        run_name=run_name,
         output_dir=output_dir,
         overwrite_output_dir=True,
         num_train_epochs=3,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
-        # save_steps=300,
-        save_strategy="steps", # epoch
-        save_total_limit=2,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=4,
+        eval_strategy="steps", # epoch, steps, no
+        eval_steps=500,
+        save_strategy="steps", # epoch, steps, no
+        save_steps=500,
+        save_total_limit=1,
         load_best_model_at_end=True,
-        eval_strategy="steps", # epoch
-        eval_steps=50,
         # logging_dir='./logs',
         # logging_steps=500,
         # logging_strategy="epoch",
         # prediction_loss_only=True,
+        report_to='wandb',
         gradient_accumulation_steps=2,
+        warmup_steps=150,
         # fp16=True,
         learning_rate=3e-5,
         max_steps=-1,
         lr_scheduler_type="linear",
-        include_inputs_for_metrics=True,
+        include_inputs_for_metrics=None,
         seed=42
     )
 
@@ -254,7 +226,7 @@ def train(train_dataset, eval_dataset):
         eval_dataset=eval_dataset,
         compute_metrics=exact_match,
         data_collator=DataCollatorForQA(tokenizer),
-        callbacks=[AccuracyCallback()]
+        # callbacks=[AccuracyCallback()]
     )
 
     # 開始訓練
@@ -277,12 +249,14 @@ if __name__ == '__main__':
     with open('./valid.json', "r", encoding="utf-8") as f:
         eval_data = json.loads(f.read())
 
+    # train_data = train_data + eval_data
+
     # 資料前處理
-    train_data = SpanSelectionDataset(data=train_data, tokenizer=tokenizer, context=context)
-    eval_data = SpanSelectionDataset(data=eval_data, tokenizer=tokenizer, context=context)
+    train_data = SpanSelectionDataset(data=train_data, tokenizer=tokenizer, context=context, max_length=max_length)
+    eval_data = SpanSelectionDataset(data=eval_data, tokenizer=tokenizer, context=context, max_length=max_length)
 
     # 訓練模型
-    train(train_data, eval_data)
+    train(train_data, eval_data) # 
     
     t2 = time()
     print(f"[Finetuning for span selection] 程式結束，一共花費 {t2 - t1} 秒 ({(t2 - t1) / 60} 分鐘) ({(t2 - t1) / 3600} 小時)")
