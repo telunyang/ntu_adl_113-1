@@ -1,4 +1,5 @@
-import json, logging
+import json
+import argparse
 import torch
 import pandas as pd
 from transformers import (
@@ -7,14 +8,23 @@ from transformers import (
     AutoTokenizer
 )
 
+# 取得 cmd 引數
+parser = argparse.ArgumentParser(description='批次建立索引')
+parser.add_argument('--model_paragraph_selection_path', default='./bert-base-chinese/models_paragraph_selection', help='微調後的 paragraph selection 模型路徑')
+parser.add_argument('--model_span_selection_path', default='./bert-base-chinese/models_span_selection', help='微調後的 span selection 模型路徑')
+parser.add_argument('--context_path', default='./context.json', help='段落資料集的路徑')
+parser.add_argument('--test_path', default='./test.json', help='測試資料的路徑')
+parser.add_argument('--output_csv_path', default='./prediction.csv', help='輸出預測結果的檔案路徑')
+args = parser.parse_args()
+
 # 判斷是否有 GPU 可以使用
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取模型與分詞器
-model_ps_path = 'finetuned/bert-base-chinese/models_paragraph_selection' # './models_paragraph_selection'
+model_ps_path = args.model_paragraph_selection_path
 tokenizer_paragraph = AutoTokenizer.from_pretrained(model_ps_path)
 model_paragraph = AutoModelForMultipleChoice.from_pretrained(model_ps_path)
-model_ss_path = 'finetuned/bert-base-chinese/models_span_selection' # 'models_final' # './models_span_selection'
+model_ss_path = args.model_span_selection_path
 tokenizer_span = AutoTokenizer.from_pretrained(model_ss_path)
 model_span = AutoModelForQuestionAnswering.from_pretrained(model_ss_path)
 
@@ -27,9 +37,9 @@ model_paragraph.eval()
 model_span.eval()
 
 # 讀取作業提供的段落資料
-with open('./context.json', "r", encoding="utf-8") as f:
+with open(args.context_path, "r", encoding="utf-8") as f:
     context = json.loads(f.read())
-with open('./test.json', "r", encoding="utf-8") as f:
+with open(args.test_path, "r", encoding="utf-8") as f:
     test_data = json.loads(f.read())
 
 # 取得段落
@@ -174,4 +184,4 @@ for index, sample in enumerate(test_data):
 
 # 將結果轉換為 DataFrame 並儲存為 CSV 檔
 df = pd.DataFrame(results)
-df.to_csv('./prediction.csv', index=False)
+df.to_csv(args.output_csv_path, index=False)

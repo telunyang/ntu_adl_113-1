@@ -2,4 +2,7 @@
 model*
 wandb
 checkpoint*
+final*
 *.csv
+finetuned
+*_model

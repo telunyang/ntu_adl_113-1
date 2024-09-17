@@ -22,7 +22,7 @@ from transformers import (
 
 
 # 讀取模型
-model_name = 'google-bert/bert-base-chinese'
+model_name = 'hfl/chinese-pert-large' # './pretrained_bert_model' # 'google-bert/bert-base-chinese'
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForQuestionAnswering.from_pretrained(model_name)
 for param in model.parameters(): 
@@ -33,9 +33,9 @@ max_length = 512
 path_context = './context.json'
 path_train_data = './train.json'
 path_valid_data = './valid.json'
-save_to_path = 'models_final' # './models_span_selection'
+save_to_path = './models_span_selection'
 output_dir = f'{save_to_path}/checkpoints'
-run_name = f'{model_name}___final' # f'{model_name}___span_selection_with_validation'
+run_name = f'{model_name}___span_selection_with_validation'
 
 # 建立 Early Stopping 機制
 class EarlyStoppingCallback(TrainerCallback):
@@ -195,8 +195,8 @@ def train(train_dataset, eval_dataset=None):
         output_dir=output_dir,
         overwrite_output_dir=True,
         num_train_epochs=3,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=16,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=4,
         eval_strategy="steps", # epoch, steps, no
         eval_steps=50,
         save_strategy="steps", # epoch, steps, no

@@ -1,13 +1,21 @@
 import torch
 import json
+import argparse
 import pandas as pd
 from transformers import AutoModelForQuestionAnswering, AutoTokenizer
+
+# 取得 cmd 引數
+parser = argparse.ArgumentParser(description='批次建立索引')
+parser.add_argument('--model_path', default='./bert-base-chinese/models_span_selection', help='微調後的模型路徑')
+parser.add_argument('--context_path', default='./context.json', help='段落資料集的路徑')
+parser.add_argument('--valid_path', default='./valid.json', help='驗證資料集的路徑')
+args = parser.parse_args()
 
 # 判斷是否有 GPU 可以使用
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取 model 和 tokenizer
-model_path = './models_span_selection'
+model_path = args.model_path
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForQuestionAnswering.from_pretrained(model_path)
 
@@ -18,12 +26,10 @@ model.to(device)
 model.eval()
 
 # 讀取資料
-with open('./context.json', "r", encoding="utf-8") as f:
+with open(args.context_path, "r", encoding="utf-8") as f:
     context = json.loads(f.read())
-with open('./valid.json', "r", encoding="utf-8") as f:
+with open(args.valid_path, "r", encoding="utf-8") as f:
     valid_data = json.loads(f.read())
-with open('./test.json', "r", encoding="utf-8") as f:
-    test_data = json.loads(f.read())
 
 # 取得答案
 def get_answer(question, context_text, tokenizer, model, max_length):
@@ -57,9 +63,9 @@ def get_answer(question, context_text, tokenizer, model, max_length):
     start_index = torch.argmax(start_probs, dim=1).item()
     end_index = torch.argmax(end_probs, dim=1).item()
 
-    # # 確認起始不會大於結束的位置
-    # if end_index < start_index:
-    #     end_index = start_index
+    # 確認起始不會大於結束的位置
+    if end_index < start_index:
+        end_index = start_index
 
     # 取得答案 (透過 offset_mapping 將 token 轉換回字元)
     offset_mapping = encoding['offset_mapping'][0]

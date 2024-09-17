@@ -1,12 +1,20 @@
 import json
 import torch
+import argparse
 from transformers import AutoModelForMultipleChoice, AutoTokenizer
+
+# 取得 cmd 引數
+parser = argparse.ArgumentParser(description='批次建立索引')
+parser.add_argument('--model_path', default='./bert-base-chinese/models_paragraph_selection', help='微調後的模型路徑')
+parser.add_argument('--context_path', default='./context.json', help='段落資料集的路徑')
+parser.add_argument('--test_path', default='./test.json', help='測試資料的路徑')
+args = parser.parse_args()
 
 # 判斷是否有 GPU 可以使用
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # 讀取模型與分詞器
-model_path = './models_paragraph_selection'
+model_path = args.model_path
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 model = AutoModelForMultipleChoice.from_pretrained(model_path)
 
@@ -16,12 +24,10 @@ model.to(device)
 # 設定成評估模式
 model.eval()
 
-# 讀取作業提供的段落資料
-with open('./context.json', "r", encoding="utf-8") as f:
+# 讀取資料
+with open(args.context_path, "r", encoding="utf-8") as f:
     context = json.loads(f.read())
-with open('./valid.json', "r", encoding="utf-8") as f:
-    valid_data = json.loads(f.read())
-with open('./test.json', "r", encoding="utf-8") as f:
+with open(args.test_path, "r", encoding="utf-8") as f:
     test_data = json.loads(f.read())
 
 # 取得段落
