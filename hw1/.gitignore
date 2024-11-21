@@ -6,3 +6,5 @@ final*
 *.csv
 finetuned
 *_model
+*checkpoint*
+*.zip

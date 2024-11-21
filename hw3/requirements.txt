@@ -1,0 +1,12 @@
+# 助教基本要求
+torch==2.4.1
+transformers==4.45.1
+bitsandbytes==0.44.1
+peft==0.13.0
+
+# 額外套件
+safetensors
+datasets
+trl
+wandb
+accelerate

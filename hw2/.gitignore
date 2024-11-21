@@ -1,0 +1,10 @@
+*.log
+model*
+wandb
+checkpoint*
+final*
+*.csv
+finetuned
+*_model
+*checkpoint*
+*.zip
